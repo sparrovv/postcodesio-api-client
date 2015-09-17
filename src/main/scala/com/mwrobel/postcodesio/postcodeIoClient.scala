@@ -2,7 +2,7 @@ package com.mwrobel.postcodesio
 
 import akka.util.Timeout
 import com.mwrobel.postcodesio.models.Postcode
-import spray.httpx.SprayJsonSupport
+import spray.httpx.{UnsuccessfulResponseException, SprayJsonSupport}
 import spray.httpx.unmarshalling.{FromResponseUnmarshaller}
 import spray.json.{JsonFormat, DefaultJsonProtocol}
 
@@ -17,7 +17,7 @@ case class PostcodeResponse[T](status: Int, result: T)
 
 case class PostcodeBulkRequest(postcodes: List[String])
 
-case class PostcodeBulkResponse(query: String, result: Postcode)
+case class PostcodeBulkResponse(query: String, result: Option[Postcode])
 
 object PostcodeBulkResponse extends DefaultJsonProtocol {
   implicit val postcodeBulkResponse = jsonFormat2(PostcodeBulkResponse.apply)
@@ -43,16 +43,20 @@ class PostcodeIoApiClient(timeoutDuration: FiniteDuration = 10.seconds) {
     (sendReceive ~> unmarshal[T]).apply(request)
   }
 
-  def getPostcode(postcode: String): Future[PostcodeResponse[Postcode]] = {
+  def getPostcode(postcode: String): Future[Option[Postcode]] = {
     pipeline[PostcodeResponse[Postcode]](
       Get(baseUri.withPath(Uri.Path(s"/postcodes/$postcode")))
-    )
+    ).map(r => Some(r.result)).recover {
+     case e: UnsuccessfulResponseException => None
+    }
   }
 
-  def getPostcode(postcodes: List[String]): Future[PostcodeResponse[List[PostcodeBulkResponse]]] = {
+  def getPostcode(postcodes: List[String]): Future[List[Postcode]] = {
     pipeline[PostcodeResponse[List[PostcodeBulkResponse]]](
       Post( baseUri.withPath(Uri.Path("/postcodes")), PostcodeBulkRequest(postcodes))
-    )
+    ).map( _.result.flatMap(_.result) ).recover{
+      case e: UnsuccessfulResponseException => Nil
+    }
   }
 }
 
